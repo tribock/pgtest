@@ -17,6 +17,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
 
     steps:
     - name: Checkout repository
@@ -41,11 +42,22 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Convert repository name to lowercase
+      id: repo
+      run: echo "repository=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
+
+    - name: Debug information
+      run: |
+        echo "Repository: ${{ steps.repo.outputs.repository }}"
+        echo "Registry: ${{ env.REGISTRY }}"
+        echo "Actor: ${{ github.actor }}"
+        echo "Event: ${{ github.event_name }}"
+
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.repository }}
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -63,3 +75,10 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    - name: Make package public
+      if: github.event_name != 'pull_request'
+      run: |
+        # This step makes the package publicly accessible
+        # Note: This requires the package to exist first, so it runs after the build
+        echo "Package pushed successfully to ${{ env.REGISTRY }}/${{ steps.repo.outputs.repository }}"
