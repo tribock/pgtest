@@ -31,6 +31,37 @@ data:
   password: <BASE64 encoded password>
   ```
 
+## Docker Image
+
+The application is automatically built and published as a Docker image to GitHub Container Registry when changes are pushed to the main branch.
+
+### Using the Docker Image
+
+Pull the image:
+```bash
+docker pull ghcr.io/tribock/pgtest:latest
+```
+
+Run the container with PostgreSQL environment variables:
+```bash
+docker run -p 8080:8080 \
+  -e PG_HOST=your-postgres-host \
+  -e PG_DBNAME=your-database \
+  -e PG_USER=your-username \
+  -e PG_PASSWORD=your-password \
+  -e PG_SSL=disable \
+  ghcr.io/tribock/pgtest:latest
+```
+
+### Environment Variables
+
+The application requires the following environment variables:
+- `PG_HOST`: PostgreSQL host address
+- `PG_DBNAME`: Database name
+- `PG_USER`: Database username
+- `PG_PASSWORD`: Database password
+- `PG_SSL`: SSL mode (disable, require, verify-ca, verify-full)
+
 ## Build/Package application
 ```bash
 make clean

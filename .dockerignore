@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+LICENSE
+
+# Build artifacts
+bin/
+build/
+
+# Deployment files
+deploy/
+
+# GitHub Actions
+.github/
+
+# Glide (legacy dependency management)
+glide.yaml
+glide.lock
+
+# Vendor directory (using go modules now)
+vendor/
+
+# Test files
+*_test.go
+**/*_test.go
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile.in
+*.dockerfile

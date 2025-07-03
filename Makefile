@@ -1,184 +1,127 @@
-# Copyright 2016 The Kubernetes Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Image URL to use all building/pushing image targets
+VERSION = $(shell git describe --tags )
+IMG = ghcr.io/tribock/pgtest:$(VERSION)
+TODAY = $(shell date -u +'%Y-%m-%d')
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+ENVTEST_K8S_VERSION = 1.26.0
 
-# The binary to build (just the basename).
-BIN := pgtest
 
-# This repo's root import path (under GOPATH).
-PKG := github.com/kastenhq/pgtest
+# Variables for generating API client, informer etc.
+LISTER_GEN       = go run k8s.io/code-generator/cmd/lister-gen
+INFORMER_GEN     = go run k8s.io/code-generator/cmd/informer-gen
+CLIENT_GEN       = go run k8s.io/code-generator/cmd/client-gen
+CONVERSION_GEN   = go run k8s.io/code-generator/cmd/conversion-gen
+DOC_GEN          = go run ./tools/cmd/doc
+XNS_INFORMER_GEN = go run github.com/maistra/xns-informer/cmd/xns-informer-gen
 
-# Where to push the docker image.
-REGISTRY ?= kastenio
+empty :=
+space := $(empty) $(empty)
 
-# Which architecture to build - see $(ALL_ARCH) for options.
-ARCH ?= amd64
+kube_api_packages = $(subst $(space),$(empty), \
+	$(kube_base_output_package)/core/v1 \
+	)
 
-# This version-strategy uses git tags to set the version string
-#VERSION := $(shell git describe --tags --always --dirty)
-#
-# This version-strategy uses a manual value to set the version string
-VERSION := 0.1.0
+kube_base_output_package = gitlab.soultec.ch/soultec/souldeploy
+kube_clientset_package   = $(kube_base_output_package)/client
+kube_listers_package     = $(kube_base_output_package)/client/listers
+kube_informers_package   = $(kube_base_output_package)/client/informers
+xns_informers_package    = $(kube_base_output_package)/client/xnsinformer
+path_apis = "./app/api/..."
+header_file              = "zarf/hack/boilerplate.go.txt"
 
-###
-### These variables should not need tweaking.
-###
-
-SRC_DIRS := cmd pkg # directories which hold app source (not vendored)
-
-ALL_ARCH := amd64 arm arm64 ppc64le
-
-# Set default base image dynamically for each arch
-ifeq ($(ARCH),amd64)
-    BASEIMAGE?=alpine
-endif
-ifeq ($(ARCH),arm)
-    BASEIMAGE?=armel/busybox
-endif
-ifeq ($(ARCH),arm64)
-    BASEIMAGE?=aarch64/busybox
-endif
-ifeq ($(ARCH),ppc64le)
-    BASEIMAGE?=ppc64le/busybox
+# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
+ifeq (,$(shell go env GOBIN))
+GOBIN=$(shell go env GOPATH)/bin
+else
+GOBIN=$(shell go env GOBIN)
 endif
 
-IMAGE := $(REGISTRY)/$(BIN)-$(ARCH)
+# Setting SHELL to bash allows bash commands to be executed by recipes.
+# Options are set to exit when a recipe line exits non-zero or a piped command fails.
+SHELL = /usr/bin/env bash -o pipefail
+.SHELLFLAGS = -ec
 
-BUILD_IMAGE ?= kanisterio/build:0.13.1-go1.9
-
-# If you want to build all binaries, see the 'all-build' rule.
-# If you want to build all containers, see the 'all-container' rule.
-# If you want to build AND push all containers, see the 'all-push' rule.
+.PHONY: all
 all: build
 
-build-%:
-	@$(MAKE) --no-print-directory ARCH=$* build
+##@ General
 
-container-%:
-	@$(MAKE) --no-print-directory ARCH=$* container
+# The help target prints out all targets with their descriptions organized
+# beneath their categories. The categories are represented by '##@' and the
+# target descriptions by '##'. The awk commands is responsible for reading the
+# entire set of makefiles included in this invocation, looking for lines of the
+# file as xyz: ## something, and then pretty-format the target and help. Then,
+# if there's a line with ##@ something, that gets pretty-printed as a category.
+# More info on the usage of ANSI control characters for terminal formatting:
+# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
+# More info on the awk command:
+# http://linuxcommand.org/lc3_adv_awk.php
 
-push-%:
-	@$(MAKE) --no-print-directory ARCH=$* push
+.PHONY: help
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-all-build: $(addprefix build-, $(ALL_ARCH))
+##@ Development
 
-all-container: $(addprefix container-, $(ALL_ARCH))
+.PHONY: manifests
+manifests:  ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+	$(CONTROLLER_GEN) rbac:roleName=caas-role crd webhook paths=".//app//..." output:crd:artifacts:config=zarf/config/crd/bases output:dir=zarf/config/rbac
+	$(CONTROLLER_GEN) rbac:roleName=caas-role crd webhook paths=".//business//..." output:crd:artifacts:config=zarf/config/crd/bases output:dir=zarf/config/rbac
 
-all-push: $(addprefix push-, $(ALL_ARCH))
+.PHONY: generate
+generate:  ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+	echo "Generating code..."
+.PHONY: fmt
+fmt: ## Run go fmt against code.
+	go fmt ./...
 
-build: bin/$(ARCH)/$(BIN)
+.PHONY: vet
+vet: ## Run go vet against code.
+	go vet ./...
 
-bin/$(ARCH)/$(BIN): .vendor
-	@echo "building: $@"
-	@docker run                                                             \
-	    -ti                                                                 \
-	    --rm                                                                \
-	    -u $$(id -u):$$(id -g)                                              \
-	    -v "$$(pwd)/.go:/go"                                                \
-	    -v "$$(pwd):/go/src/$(PKG)"                                         \
-	    -v "$$(pwd)/bin/$(ARCH):/go/bin"                                    \
-	    -v "$$(pwd)/bin/$(ARCH):/go/bin/$$(go env GOOS)_$(ARCH)"            \
-	    -v "$$(pwd)/.go/std/$(ARCH):/usr/local/go/pkg/linux_$(ARCH)_static" \
-	    -v "$$(pwd)/.go/cache:/.cache"                                      \
-	    -w /go/src/$(PKG)                                                   \
-	    $(BUILD_IMAGE)                                                      \
-	    /bin/bash -c "                                                        \
-	        ARCH=$(ARCH)                                                    \
-	        VERSION=$(VERSION)                                              \
-	        PKG=$(PKG)                                                      \
-	        ./build/build.sh                                                \
-	    "
+.PHONY: test
+test:  ## Run tests.
+	 go test ./... -coverprofile cover.out
 
-# Example: make shell CMD="-c 'date > datefile'"
-shell: build-dirs
-	@echo "launching a shell in the containerized build environment"
-	@docker run                                                             \
-	    -ti                                                                 \
-	    --rm                                                                \
-	    -v "$$(pwd)/.go:/go"                                                \
-	    -v "$$(pwd):/go/src/$(PKG)"                                         \
-	    -v "$$(pwd)/bin/$(ARCH):/go/bin"                                    \
-	    -v "$$(pwd)/bin/$(ARCH):/go/bin/$$(go env GOOS)_$(ARCH)"            \
-	    -v "$$(pwd)/.go/std/$(ARCH):/usr/local/go/pkg/linux_$(ARCH)_static" \
-	    -v "$$(pwd)/.go/cache:/.cache"                                      \
-	    -w /go/src/$(PKG)                                                   \
-	    $(BUILD_IMAGE)                                                      \
-	    /bin/bash $(CMD)
+##@ Build
 
-.vendor:
-	@$(MAKE) shell CMD='-c "                       \
-		PATH=$$GOPATH/bin:$$GOROOT/bin::$${PATH} HOME=/root \
-		glide install --strip-vendor             \
-	"'
-	@touch $@
+.PHONY: build
+build: manifests generate fmt vet  ## Build manager binary.
+	go build -o bin/manager app/main.go
 
-DOTFILE_IMAGE = $(subst :,_,$(subst /,_,$(IMAGE))-$(VERSION))
+.PHONY: run
+run: docker-build ## Run a controller from your host.
+	docker run -p 8443:8443 ${IMG}
 
-container: .container-$(DOTFILE_IMAGE) container-name
-.container-$(DOTFILE_IMAGE): bin/$(ARCH)/$(BIN) Dockerfile.in
-	@sed \
-	    -e 's|ARG_BIN|$(BIN)|g' \
-	    -e 's|ARG_ARCH|$(ARCH)|g' \
-	    -e 's|ARG_FROM|$(BASEIMAGE)|g' \
-	    Dockerfile.in > .dockerfile-$(ARCH)
-	@docker build -t $(IMAGE):$(VERSION) -f .dockerfile-$(ARCH) .
-	@docker images -q $(IMAGE):$(VERSION) > $@
+.PHONY: devrun
+devrun:  generate devrun-go ## Run a controller from your host.
+	
 
-container-name:
-	@echo "container: $(IMAGE):$(VERSION)"
+.PHONY: devrun-go
+devrun-go:  ## Run a controller from your host.
+	export LOG_LEVEL=DEBUG; go run -ldflags "-X main.version=${VERSION} -X main.date=${TODAY}" *.go -file deploy/app-config.yaml
 
-push: .push-$(DOTFILE_IMAGE) push-name
-.push-$(DOTFILE_IMAGE): .container-$(DOTFILE_IMAGE)
-ifeq ($(findstring gcr.io,$(REGISTRY)),gcr.io)
-	@gcloud docker -- push $(IMAGE):$(VERSION)
-else
-	@docker push $(IMAGE):$(VERSION)
-endif
-	@docker images -q $(IMAGE):$(VERSION) > $@
+# If you wish built the manager image targeting other platforms you can use the --platform flag.
+# (i.e. docker build --platform linux/arm64 ). However, you must enable docker buildKit for it.
+# More info: https://docs.docker.com/develop/develop-images/build_enhancements/
+.PHONY: docker-build
+docker-build: generate fmt vet  ## Build docker image with the manager.
+	docker buildx build --build-arg CI_COMMIT_TAG=${VERSION} --build-arg DATE=${TODAY} --push --platform linux/arm64/v8,linux/amd64 . -t ${IMG}
 
-push-name:
-	@echo "pushed: $(IMAGE):$(VERSION)"
+.PHONY: docker-build-push
+docker-build-push: docker-build ## Push docker image with the manager.
+	docker push ${IMG}
+	docker tag ${CERT_IMG} ${CERT_LATEST_PUB}
+	docker push ${CERT_IMG}
+	docker push ${CERT_LATEST_PUB}
+	VERSION=$(VERSION) DATE=${TODAY} envsubst < zarf/config/manager/kustomization.tmpl > zarf/config/manager/kustomization.yaml
+	VERSION=$(VERSION) envsubst < zarf/k8s/base/kustomization.tmpl > zarf/k8s/base/kustomization.yaml
 
-version:
-	@echo $(VERSION)
-
-test: build-dirs
-	@docker run                                                             \
-	    -ti                                                                 \
-	    --rm                                                                \
-	    -v "$$(pwd)/.go:/go"                                                \
-	    -v "$$(pwd):/go/src/$(PKG)"                                         \
-	    -v "$$(pwd)/bin/$(ARCH):/go/bin"                                    \
-	    -v "$$(pwd)/.go/std/$(ARCH):/usr/local/go/pkg/linux_$(ARCH)_static" \
-	    -v "$$(pwd)/.go/cache:/.cache"                                      \
-	    -w /go/src/$(PKG)                                                   \
-	    $(BUILD_IMAGE)                                                      \
-	    /bin/bash -c "                                                        \
-	        ./build/test.sh $(SRC_DIRS)                                     \
-	    "
-
-build-dirs:
-	@mkdir -p bin/$(ARCH)
-	@mkdir -p .go .go/cache .go/src/$(PKG) .go/pkg .go/bin .go/std/$(ARCH)
-
-clean: container-clean bin-clean vendor-clean
-
-vendor-clean:
-	rm -rf vendor
-	rm -f .vendor
-
-container-clean:
-	rm -rf .container-* .dockerfile-* .push-*
-
-bin-clean:
-	rm -rf .go bin
+.PHONY: docker-push
+docker-push: ## Push docker image with the manager.
+	docker push ${IMG}
+	docker tag ${CERT_IMG} ${CERT_LATEST_PUB}
+	docker push ${CERT_IMG}
+	docker push ${CERT_LATEST_PUB}
+	VERSION=$(VERSION) DATE=${TODAY} envsubst < zarf/config/manager/kustomization.tmpl > zarf/config/manager/kustomization.yaml
+	VERSION=$(VERSION) envsubst < zarf/k8s/base/kustomization.tmpl > zarf/k8s/base/kustomization.yaml
