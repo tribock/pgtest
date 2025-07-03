@@ -8,7 +8,8 @@ on:
     branches: [ main, master ]
 
 env:
-  REGISTRY: ghcr.io
+  GHCR_REGISTRY: ghcr.io
+  DOCKER_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
@@ -38,9 +39,17 @@ jobs:
       if: github.event_name != 'pull_request'
       uses: docker/login-action@v3
       with:
-        registry: ${{ env.REGISTRY }}
+        registry: ${{ env.GHCR_REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.DOCKER_SECRET }}
+
+    - name: Log in to Docker Hub
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: tribock
+        password: ${{ secrets.PUBLIC_REGISTRY_SECRET }}
 
     - name: Convert repository name to lowercase
       id: repo
@@ -49,7 +58,8 @@ jobs:
     - name: Debug information
       run: |
         echo "Repository: ${{ steps.repo.outputs.repository }}"
-        echo "Registry: ${{ env.REGISTRY }}"
+        echo "GHCR Registry: ${{ env.GHCR_REGISTRY }}"
+        echo "Docker Registry: ${{ env.DOCKER_REGISTRY }}"
         echo "Actor: ${{ github.actor }}"
         echo "Event: ${{ github.event_name }}"
 
@@ -57,7 +67,9 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.repository }}
+        images: |
+          ${{ env.GHCR_REGISTRY }}/${{ steps.repo.outputs.repository }}
+          ${{ env.DOCKER_REGISTRY }}/tribock/pgtest
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -81,4 +93,6 @@ jobs:
       run: |
         # This step makes the package publicly accessible
         # Note: This requires the package to exist first, so it runs after the build
-        echo "Package pushed successfully to ${{ env.REGISTRY }}/${{ steps.repo.outputs.repository }}"
+        echo "Packages pushed successfully to:"
+        echo "  - ${{ env.GHCR_REGISTRY }}/${{ steps.repo.outputs.repository }}"
+        echo "  - ${{ env.DOCKER_REGISTRY }}/tribock/pgtest"
